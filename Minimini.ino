@@ -1,8 +1,9 @@
 #include <Servo.h>
-#define Kp 0.5f     //Pゲイン
-#define Ki 1.0f     //Iゲイン
-#define Kd 1.0f     //Dゲイン
-#define target 630 //目標明るさ
+#define Kp -1.0f     //Pゲイン
+#define Ki 0.0f     //Iゲイン
+#define Kd 0.0f     //Dゲイン
+#define target1 40 //目標明るさ
+#define target2 40 //目標明るさ
 Servo servo;
 
 //MODEは常に0
@@ -31,6 +32,8 @@ float pretime = 0; //微分積分のdtに使う現在時刻との差
 float integral = 0; //インテグラル
 float last_err1 = 0;
 float last_err2 = 0;
+
+int limit = 0;
 
 int U1 = 0;
 int U2 = 0;
@@ -64,39 +67,55 @@ void Read_PhotoReflector(){
 }
 
 void PID_control1(){ //モーター1のPID計算
-  //float dt = (micros() - pretime) / 1000000;
-  //pretime = micros();
-  float err = target - val1;
+  float dt = (micros() - pretime) / 1000000;
+  pretime = micros();
+  float err = target1 - val1;
   float P = Kp * err;
-  /*integral += err * dt;
+  integral += err * dt;
   float I = Ki * integral;
   float diff = (err - last_err1) / dt;
-  float D = Kd * diff;*/
-  U1 = P; //+ I + D;
-  //last_err1 = err;
+  float D = Kd * diff;
+  U1 = P + I + D;
+  last_err1 = err;
 }
 
 void PID_control2(){ //モーター2のPID計算
-  //float dt = (micros() - pretime) / 1000000;
-  //pretime = micros();
-  float err = target - val2;
+  float dt = (micros() - pretime) / 1000000;
+  pretime = micros();
+  float err = target2 - val2;
   float P = Kp * err;
-  /*integral += err * dt;
+  integral += err * dt;
   float I = Ki * integral;
   float diff = (err - last_err2) / dt;
-  float D = Kd * diff;*/
-  U2 = P; //+ I + D;
-  //last_err2 = err;
+  float D = Kd * diff;
+  U2 = P + I + D;
+  last_err2 = err;
 }
 
 void PWM_control() { //PWM制御
-  analogWrite(IN1,255 - U1);
+  V1 = 125 - U1 - T1;
+  if (V1 < 0) V1 = 0;
+  V2 = 125 - U2 - T2;
+  if (V2 < 0) V2 = 0;
+  analogWrite(IN1,V1);
   analogWrite(IN2,0);
-  analogWrite(IN3,255 - U2);
+  analogWrite(IN3,V2);
   analogWrite(IN4,0);
-  delay(100);
+  delay(50);
   analogWrite(IN1,0);
   analogWrite(IN3,0);
+  if (V1 < 120 && limit < 8000) {
+    analogWrite(IN2, V1);
+    analogWrite(IN2, 0);
+    limit++;
+  } else if (V2 < 120 && limit < 8000) {
+    analogWrite(IN4, V2);
+    analogWrite(IN4, 0);
+    limit++;
+  } else {
+    if (limit < 8500) limit = 0;
+  }
+  //delay(50);  //Ultrasonic_Sensor()を使うときはいらない
 }
 
 void Ultrasonic_Sensor() {
@@ -161,15 +180,36 @@ void Show() { //フォトリフレクタの値を表示(テスト用)
 }
 
 void loop() {
-  /*Read_PhotoReflector();
+  //Show();
+  /*switch (mode) {
+    case 1:
+      Read_PhotoReflector();
+      PID_control1();
+      PID_control2();
+      PWM_control();
+      Ultrasonic_Sensor();
+      break;
+    case 2:
+      Setting_Power_of_Moter()
+      Close_Servo();
+      Raise_Arm();
+      break;
+    case 3:
+      Turu();
+      break;
+    case 4:
+      Setting_Power_of_Moter();
+      LowerArm();
+      Open_Servo();
+      break;
+  }*/
+  Read_PhotoReflector();
   Show();
   PID_control1();
   PID_control2();
   PWM_control();
-  Spin_Servo();
-  Raise_Arm();
-  Setting_Power_of_Moter();
-  Raise_Arm();
-  Lower_Arm();*/
+  //Setting_Power_of_Moter();
+  //Raise_Arm();
+  //Lower_Arm();
   Ultrasonic_Sensor();
 }
