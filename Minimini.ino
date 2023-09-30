@@ -1,3 +1,8 @@
+/*不具合
+  ・缶を掴んで持ち上げるとき、完全に持ち上がらず、ターンの角度も小さくなることがある(原因がわからないため、ほぼ運)
+  ・電池の充電が足りないと全体的にパワーが下がる(このモデルは充電直後を想定)
+  ・機体の動きが止まった際、自動で少し動くようにしているが、それでも停止してしまうことがある。これはPWM_control()関数のif (V1 < 70 && V2 < 70)の70(モーターに出力される電圧)を調整しきれてないのでここを変更することで直る？
+*/
 #include <Servo.h>
 #define Kp -1.0f     //Pゲイン
 #define Ki 0.0f     //Iゲイン
@@ -33,14 +38,20 @@ float integral = 0; //インテグラル
 float last_err1 = 0;
 float last_err2 = 0;
 
-int limit = 0;
+int limit = 0; //停止時間
 
-int U1 = 0;
-int U2 = 0;
+int U1 = 0; //PID計算結果1
+int U2 = 0; //PID計算結果2
 
 float duration = 0;
 float distance = 0;
-float speed_of_sound = 331.5 + 0.6 * 25;
+float speed_of_sound = 331.5 + 0.6 * 25; //25℃の音の速度
+
+int V1 = 0; //M1出力電圧
+int V2 = 0; //M2出力電圧
+
+int Mode = 1; //動作の種類
+int Mode_2_or_4 = 2;
 
 void setup() {
   pinMode(IN1, OUTPUT);
@@ -93,9 +104,9 @@ void PID_control2(){ //モーター2のPID計算
 }
 
 void PWM_control() { //PWM制御
-  V1 = 125 - U1 - T1;
+  V1 = 130 - U1 - T1;
   if (V1 < 0) V1 = 0;
-  V2 = 125 - U2 - T2;
+  V2 = 130 - U2 - T2;
   if (V2 < 0) V2 = 0;
   analogWrite(IN1,V1);
   analogWrite(IN2,0);
@@ -104,18 +115,30 @@ void PWM_control() { //PWM制御
   delay(50);
   analogWrite(IN1,0);
   analogWrite(IN3,0);
-  if (V1 < 120 && limit < 8000) {
+  if (V1 < 120) {
     analogWrite(IN2, V1);
     analogWrite(IN2, 0);
-    limit++;
-  } else if (V2 < 120 && limit < 8000) {
+  }
+  if (V2 < 120) {
     analogWrite(IN4, V2);
     analogWrite(IN4, 0);
-    limit++;
-  } else {
-    if (limit < 8500) limit = 0;
   }
-  //delay(50);  //Ultrasonic_Sensor()を使うときはいらない
+  if (V1 < 70 && V2 < 70){
+    limit++;
+    if (limit > 20) {  //limitが20になったら自動でちょっと進む
+      for (int i = 0; i < 2; i++) {
+        analogWrite(IN1, 150);
+        analogWrite(IN2,0);
+        analogWrite(IN3, 150);
+        analogWrite(IN4,0);
+        delay(50);
+        analogWrite(IN1,0);
+        analogWrite(IN3,0);
+        delay(50); 
+      }
+      limit = 0;
+  }
+  delay(60);  //Ultrasonic_Sensor()を使うときはいらない
 }
 
 void Ultrasonic_Sensor() {
@@ -133,43 +156,64 @@ void Ultrasonic_Sensor() {
     Serial.print(distance);
     Serial.println(" cm");
   }
-
-  delay(200);
+  if (distance < 7.00 && Mode_2_or_4 == 2) {  //距離7cm未満でMode2に移行
+    Mode = Mode_2_or_4;
+    Mode_2_or_4 = 4;
+  }
+  if (distance < 3.00 && Mode_2_or_4 == 4) Mode = Mode_2_or_4;  //距離3cm未満でMode4に移行
 }
 
-void Setting_Power_of_Moter() {
+void Setting_Power_of_Moter() {  //これを前もって呼び出さないとアームが動かない
   analogWrite(IN8, 255);
 }
 
-void Raise_Arm() {
-  for (int i = 0; i < 15; i++) {
-    digitalWrite(IN9, HIGH);
-    digitalWrite(IN10, LOW);
-    delay(100);
-    digitalWrite(IN9, LOW);
-    delay(10);
-  }
+void Raise_Arm() {  //アームを上げる
+  digitalWrite(IN9, HIGH);
+  digitalWrite(IN10, LOW);
+  delay(1500);
 }
 
-void Lower_Arm() {
-  for (int i = 0; i < 10; i++) {
+void Lower_Arm() {  //アームを下ろす
+  for (int i = 0; i < 40; i++) {  //ここの繰り返す回数は正直多すぎても大丈夫、時間がかかるだけで置くのが丁寧になる
     digitalWrite(IN9, LOW);
     digitalWrite(IN10, HIGH);
-    delay(100);
+    delay(20);
     digitalWrite(IN10, LOW);
-    delay(10);
+    delay(100);
   }
 }
 
-void Spin_Servo(){ //アームのサーボモーターを動かす
-  servo.write(90);
-  delay(1000);
+void Close_Servo() {　　//アームのサーボモーターを閉じる
   servo.write(45);
-  delay(1000);
+  delay(50); 
+}
+
+void Open_Servo() {  //アームのサーボモーターを開く
+  servo.write(90);
+  delay(50);
+}
+
+void Turn() {  //旋回
+  for (int i = 0; i < 9; i++) { //繰り返しの回数を調整して角度を変える
+    analogWrite(IN1,255);
+    analogWrite(IN2,0);
+    analogWrite(IN3,0);
+    analogWrite(IN4,255);
+    delay(50);
+    analogWrite(IN1,0);
+    analogWrite(IN4,0);
+    delay(50);
+  }
 }
 
 void Show() { //フォトリフレクタの値を表示(テスト用)
-  Serial.print("U1: ");
+  Serial.print("Mode: ");
+  Serial.print(Mode);
+  Serial.print(", V1: ");
+  Serial.print(V1);
+  Serial.print(", V2: ");
+  Serial.print(V2);
+  Serial.print(", U1: ");
   Serial.print(U1);
   Serial.print(", U2: ");
   Serial.print(U2);
@@ -180,36 +224,34 @@ void Show() { //フォトリフレクタの値を表示(テスト用)
 }
 
 void loop() {
-  //Show();
-  /*switch (mode) {
-    case 1:
+  Show();
+  switch (mode) {
+    case 1:  //行きのライントレース
       Read_PhotoReflector();
       PID_control1();
       PID_control2();
       PWM_control();
       Ultrasonic_Sensor();
       break;
-    case 2:
+    case 2:  //缶を掴む
+      delay(1000);
       Setting_Power_of_Moter()
       Close_Servo();
       Raise_Arm();
+      Mode = 3;
       break;
-    case 3:
+    case 3:  //180℃旋回
+      delay(1000);
       Turu();
       break;
-    case 4:
+    case 4:  //缶を離す
+      delay(1000);
       Setting_Power_of_Moter();
       LowerArm();
       Open_Servo();
+      Mode = 5;
       break;
-  }*/
-  Read_PhotoReflector();
-  Show();
-  PID_control1();
-  PID_control2();
-  PWM_control();
-  //Setting_Power_of_Moter();
-  //Raise_Arm();
-  //Lower_Arm();
-  Ultrasonic_Sensor();
+    case 5:
+      delay(1000);
+  }
 }
